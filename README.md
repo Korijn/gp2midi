@@ -97,6 +97,15 @@ which are not in this repository. Point `GP2MIDI_TEST_SONGS` at a folder of `.gp
 include them; they are skipped without it. Guitar Pro exports found in a `GP Exports`
 subfolder there are compared against, song by song.
 
+Copy `.env.example` to `.env` and put the path there — `.env` is not committed, so where your
+scores live stays yours:
+
+```
+GP2MIDI_TEST_SONGS=/path/to/tabs
+```
+
+The environment wins over the file, so passing it in one go works too:
+
 ```bash
 GP2MIDI_TEST_SONGS="/path/to/tabs" uv run pytest
 ```

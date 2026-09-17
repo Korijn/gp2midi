@@ -21,3 +21,6 @@ wheels/
 *.gpx
 *.mid
 *.midi
+
+# Local paths to the scores, for the tests
+.env
