@@ -10,11 +10,11 @@ and not supported.
 ## Usage
 
 ```bash
-uv run gp2midi "path/to/01 Tabs" -o midi/      # every .gp file in a folder
+uv run gp2midi tabs/ -o midi/                  # every .gp file in a folder
 uv run gp2midi "tabs/*.gp" -o midi/            # a pattern; "**/*.gp" searches subfolders too
-uv run gp2midi "01 Lethe.gp" -o lethe.mid      # one file
-uv run gp2midi inspect "01 Lethe.gp"           # tracks, articulations, velocities per marking
-uv run gp2midi config "01 Tabs" -o gp2midi.toml   # write a settings file to edit
+uv run gp2midi song.gp -o song-drums.mid       # one file
+uv run gp2midi inspect song.gp                 # tracks, articulations, velocities per marking
+uv run gp2midi config tabs/ -o gp2midi.toml    # write a settings file to edit
 ```
 
 `export` may be left out, as above. Quote patterns: Windows shells leave them to the program.
@@ -64,8 +64,8 @@ ghost note.
 
 With `markings = false`, `tempo_ramps = false` and `ticks_per_quarter = 480`, gp2midi produces
 exactly what Guitar Pro exports: same note positions, lengths, note numbers and velocities.
-That is checked against Guitar Pro's exports of three songs in `tests/test_guitar_pro.py`, and
-it is how the details below were established.
+`tests/test_guitar_pro.py` checks that against Guitar Pro's own exports, and it is how the
+details below were established (from three songs using every dynamic but ppp).
 
 - Guitar Pro's velocities are tenths of 127 per dynamic: ppp 25, pp 38, p 51, mp 64, mf 76,
   f 89, ff 102, fff 114 (every value but ppp measured).
@@ -90,4 +90,13 @@ Not handled yet, with a warning when a file uses them: D.S./D.C./coda directions
 
 ```bash
 uv run pytest
+```
+
+The checks against real scores and against Guitar Pro's own exports need scores to run on,
+which are not in this repository. Point `GP2MIDI_TEST_SONGS` at a folder of `.gp` files to
+include them; they are skipped without it. Guitar Pro exports found in a `GP Exports`
+subfolder there are compared against, song by song.
+
+```bash
+GP2MIDI_TEST_SONGS="/path/to/tabs" uv run pytest
 ```

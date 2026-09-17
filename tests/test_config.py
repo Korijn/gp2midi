@@ -106,7 +106,7 @@ def test_settings_file_lists_used_articulations():
 @pytest.mark.parametrize("encoding, bom", [("utf-8", b""), ("utf-8", codecs.BOM_UTF8), ("utf-16-le", codecs.BOM_UTF16_LE)])
 def test_settings_file_encodings(tmp_path, encoding, bom):
     path = tmp_path / "gp2midi.toml"
-    path.write_bytes(bom + '[notes]\n"Crash medium (choke)" = 57 # Façade\n'.encode(encoding))
+    path.write_bytes(bom + '[notes]\n"Crash medium (choke)" = 57 # touché\n'.encode(encoding))
     assert settings.load(path).notes.entries == {"Crash medium (choke)": 57}
 
 

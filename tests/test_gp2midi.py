@@ -114,7 +114,7 @@ def test_repeat_without_start_goes_back_to_beginning():
 
 
 def test_alternate_endings_spanning_two_bars():
-    # the pattern used in Kronos: two bars of first ending, one bar of second ending
+    # a pattern that turns up in real scores: two bars of first ending, one of second ending
     bars = [MB(repeat=(True, False, 0)), MB(endings="1"), MB(endings="1", repeat=(False, True, 2)), MB(endings="2"), MB()]
     assert order(*bars) == [0, 1, 2, 0, 3, 4]
 
@@ -230,12 +230,12 @@ def test_export_cli_writes_midi(tmp_path, capsys):
         MB([[B(notes=[N(KICK)], dynamic="FF"), B(notes=[N(SNARE, HEAVY)], dynamic="FF")]], time="2/4", section="Verse Ω"),
         MB([[B("Half", notes=[N(SNARE, ghost=True)], dynamic="FF")]], time="2/4"),
     ]
-    gp = write_gp(tmp_path / "song.gp", build(bars, tempo=[(0, 0, 90, False)], title="Façade"))
+    gp = write_gp(tmp_path / "song.gp", build(bars, tempo=[(0, 0, 90, False)], title="Tête-à-tête"))
     assert main(["export", str(gp), "-o", str(tmp_path / "out")]) == 0
     mf = mido.MidiFile(tmp_path / "out" / "song.mid", charset="utf-8")
     assert mf.ticks_per_beat == 960
     conductor = [m for m in mf.tracks[0] if m.is_meta]
-    assert conductor[0].type == "track_name" and conductor[0].name == "Façade"
+    assert conductor[0].type == "track_name" and conductor[0].name == "Tête-à-tête"
     assert any(m.type == "set_tempo" and round(mido.tempo2bpm(m.tempo)) == 90 for m in conductor)
     assert any(m.type == "time_signature" and (m.numerator, m.denominator) == (2, 4) for m in conductor)
     assert any(m.type == "marker" and m.text == "Verse Ω" for m in conductor)

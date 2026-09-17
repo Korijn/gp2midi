@@ -12,3 +12,12 @@ wheels/
 # Tooling caches
 .pytest_cache/
 .ruff_cache/
+
+# Scores and the MIDI made from them are nobody's business but their author's
+*.gp
+*.gp3
+*.gp4
+*.gp5
+*.gpx
+*.mid
+*.midi

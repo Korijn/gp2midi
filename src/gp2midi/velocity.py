@@ -25,8 +25,8 @@ DEFAULT_RANGES = {
 DEFAULT_GRACE_OFFSET = -20
 
 # What Guitar Pro's own MIDI export does: the dynamic alone sets the velocity, in steps of
-# a tenth of 127 (ppp is 20%, fff 90%). Measured from its exports of "01 Lethe",
-# "06 Silk and Gold" and "07 The Great Nothing"; every dynamic but ppp appears in those.
+# a tenth of 127 (ppp is 20%, fff 90%). Measured from its exports of three songs, which
+# between them use every dynamic but ppp.
 GUITAR_PRO = tuple(round(127 * (2 + i) / 10) for i in range(len(DYNAMICS)))
 
 
