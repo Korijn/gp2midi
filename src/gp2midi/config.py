@@ -10,14 +10,14 @@ import codecs
 import json
 import tomllib
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 from .gpif import Articulation
-from .notemap import NoteMap, normalize, qualified_name
+from .notemap import ChokeMap, NoteMap, normalize, qualified_name
 from .velocity import DYNAMICS, MARKINGS, VelocityMap, spread
 
 FILENAME = "gp2midi.toml"
@@ -39,6 +39,7 @@ class Config:
     tempo_ramps: bool = True
     velocity: VelocityMap = field(default_factory=VelocityMap)
     notes: NoteMap = field(default_factory=NoteMap)
+    chokes: ChokeMap = field(default_factory=ChokeMap)
     source: Path | None = field(default=None, compare=False)
 
 
@@ -97,6 +98,10 @@ def parse(data: dict[str, Any], label: str = FILENAME, source: Path | None = Non
     velocity = top.table("velocity")
     config.velocity = _velocity(velocity)
     velocity.finish()
+
+    chokes = top.table("chokes")
+    config.chokes = _chokes(chokes)
+    chokes.finish()
 
     config.notes = _notes(top.table("notes"))
     top.finish()
@@ -174,13 +179,20 @@ def _note_length(table: _Table) -> Fraction | None:
     value = table.data.pop("note_length", "written")
     if isinstance(value, str) and value.strip().casefold() == "written":
         return None
-    try:
-        whole_notes = Fraction(value) if isinstance(value, str) else None
-    except (ValueError, ZeroDivisionError):
-        whole_notes = None
+    whole_notes = _fraction(value)
     if whole_notes is None or whole_notes <= 0:
         raise table.error("note_length", f'expected "written" or a note value such as "1/32", got {_show(value)}')
     return whole_notes * 4
+
+
+def _fraction(value: Any) -> Fraction | None:
+    """A note value such as "1/32", in whole notes; None when it is not one."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return Fraction(value)
+    except (ValueError, ZeroDivisionError):
+        return None
 
 
 def _velocity(table: _Table) -> VelocityMap:
@@ -202,6 +214,39 @@ def _velocity(table: _Table) -> VelocityMap:
         grace_offset=table.get_int("grace_offset", defaults.grace_offset, -126, 126),
         markings=table.get_bool("markings", defaults.markings),
     )
+
+
+CHOKE_MODES = ("note", "aftertouch", "off")
+
+
+def _chokes(table: _Table) -> ChokeMap:
+    defaults = ChokeMap()
+    mode = table.data.pop("mode", defaults.mode)
+    if not isinstance(mode, str) or mode.strip().casefold() not in CHOKE_MODES:
+        raise table.error("mode", f"expected {_one_of(CHOKE_MODES)}, got {_show(mode)}")
+    notes = table.table("notes")
+    return ChokeMap(
+        mode=mode.strip().casefold(),
+        at=_choke_at(table),
+        velocity=table.get_int("velocity", defaults.velocity, 1, 127),
+        pressure=table.get_int("pressure", defaults.pressure, 0, 127),
+        notes=_notes(notes),
+    )
+
+
+def _choke_at(table: _Table) -> Fraction | None:
+    value = table.data.pop("at", "end")
+    if isinstance(value, str) and value.strip().casefold() == "end":
+        return None
+    whole_notes = _fraction(value)
+    if whole_notes is None or whole_notes <= 0:
+        raise table.error("at", f'expected "end" or a note value such as "1/32", got {_show(value)}')
+    return whole_notes * 4
+
+
+def _one_of(values: Iterable[str]) -> str:
+    quoted = [_show(v) for v in values]
+    return ", ".join(quoted[:-1]) + f" or {quoted[-1]}"
 
 
 def _notes(table: _Table) -> NoteMap:
@@ -228,7 +273,9 @@ def to_toml(config: Config, articulations: Iterable[Articulation] = ()) -> str:
     """The settings as a commented gp2midi.toml. ``articulations`` are listed under [notes]
     with the note they get, besides any notes already set."""
     v = config.velocity
+    c = config.chokes
     note_length = "written" if config.note_length is None else str(config.note_length / 4)
+    choke_at = "end" if c.at is None else str(c.at / 4)
     lines = [
         "# gp2midi settings. Every setting is optional: leave one out to get its default.",
         "",
@@ -266,6 +313,27 @@ def to_toml(config: Config, articulations: Iterable[Articulation] = ()) -> str:
         "# grace notes (flams, drags) are this much softer than their own marking",
         f"grace_offset = {v.grace_offset}",
         "",
+        "[chokes]",
+        "# Cymbal chokes. Guitar Pro gives a choked cymbal the same note as an ordinary hit,",
+        "# so the choke is lost in its own export; drum instruments want one of these:",
+        '#   "note":       the cymbal, and then a second note that chokes it (most common)',
+        '#   "aftertouch": polyphonic aftertouch on the note of the cymbal itself',
+        '#   "off":        a choked cymbal is exported as a plain hit, as Guitar Pro does',
+        f"mode = {_show(c.mode)}",
+        '# When the cymbal is grabbed: "end" of the written note, or a note value after the',
+        '# hit, e.g. "1/32".',
+        f"at = {_show(choke_at)}",
+        "# velocity of the choking note, and the aftertouch value, for the two modes above",
+        f"velocity = {c.velocity}",
+        f"pressure = {c.pressure}",
+        "",
+        "[chokes.notes]",
+        "# The note that chokes each cymbal, named as under [notes]. Unlisted articulations",
+        "# use the number Guitar Pro itself gives them, which is free in a General MIDI drum",
+        "# map (94-98 for the usual cymbals). false leaves a cymbal unchoked; naming an",
+        "# articulation here makes it count as a choke even if Guitar Pro does not.",
+        *_note_lines(c.notes, [a for a in articulations if c.is_choke(a)], c.key, '# "China (choke)" = 96'),
+        "",
         "[notes]",
         "# MIDI note per drum articulation, named as `gp2midi inspect` shows them. Unlisted",
         "# articulations keep Guitar Pro's General MIDI note; false leaves one out. When two",
@@ -281,22 +349,29 @@ def _levels(levels: tuple[int, ...]) -> str:
     return "[" + ", ".join(map(str, levels)) + "]"
 
 
-def _note_lines(notes: NoteMap, articulations: Iterable[Articulation]) -> list[str]:
+def _note_lines(
+    notes: NoteMap,
+    articulations: Iterable[Articulation],
+    note: Callable[[Articulation], int | None] | None = None,
+    example: str = '# "Snare (rim shot)" = 40',
+) -> list[str]:
     used: dict[str, Articulation] = {}
     for a in articulations:
         used.setdefault(normalize(qualified_name(a)), a)
     shared_names = Counter(normalize(a.name) for a in used.values())
 
-    def line(key: str, note: int | None) -> str:
-        return f"{_show(key)} = {'false' if note is None else note}"
+    chosen = note or notes.note
+
+    def line(key: str, value: int | None) -> str:
+        return f"{_show(key)} = {'false' if value is None else value}"
 
     lines, written = [], set()
     for a in used.values():
         key = notes.match(a) or (qualified_name(a) if shared_names[normalize(a.name)] > 1 else a.name)
         if normalize(key) not in written:
             written.add(normalize(key))
-            lines.append(line(key, notes.note(a)))
-    for key, note in notes.entries.items():
+            lines.append(line(key, chosen(a)))
+    for key, value in notes.entries.items():
         if normalize(key) not in written:
-            lines.append(line(key, note))
-    return lines or ['# "Snare (rim shot)" = 40']
+            lines.append(line(key, value))
+    return lines or [example]

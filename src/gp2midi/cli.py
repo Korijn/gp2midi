@@ -121,11 +121,13 @@ def _output_paths(files: list[Path], config: Config, override: str | None) -> li
     return paths
 
 
-def _warn_unknown_notes(path: Path, config: Config, tracks: list[Track], reported: set[str]) -> None:
-    for key in config.notes.unknown(a for t in tracks for a in t.articulations):
-        if key not in reported:
-            reported.add(key)
-            _warn(f'{path.name}: [notes] "{key}" is not a drum articulation in this file')
+def _warn_unknown_notes(path: Path, config: Config, tracks: list[Track], reported: set[tuple[str, str]]) -> None:
+    articulations = [a for t in tracks for a in t.articulations]
+    for section, notes in (("notes", config.notes), ("chokes.notes", config.chokes.notes)):
+        for key in notes.unknown(articulations):
+            if (section, key) not in reported:
+                reported.add((section, key))
+                _warn(f'{path.name}: [{section}] "{key}" is not a drum articulation in this file')
 
 
 def _warn_unsupported(path: Path, score: Score, tracks: list[Track]) -> None:
@@ -141,7 +143,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     config = _settings(args)
     files = _input_files(args.inputs)
     targets = _output_paths(files, config, args.output)
-    reported: set[str] = set()
+    reported: set[tuple[str, str]] = set()
     status = 0
     for path, target in zip(files, targets, strict=True):
         try:
@@ -158,7 +160,10 @@ def cmd_export(args: argparse.Namespace) -> int:
         _warn_unknown_notes(path, config, tracks, reported)
         _warn_unsupported(path, score, tracks)
         parts = [
-            midi.DrumPart(t.name, playback.drum_events(t, bars, config.velocity, config.notes, config.note_length))
+            midi.DrumPart(
+                t.name,
+                playback.drum_events(t, bars, config.velocity, config.notes, config.note_length, config.chokes),
+            )
             for t in tracks
         ]
         song = midi.build_midi(
@@ -169,6 +174,7 @@ def cmd_export(args: argparse.Namespace) -> int:
             channel=config.channel - 1,
             ticks_per_quarter=config.ticks_per_quarter,
             markers=config.markers,
+            chokes=config.chokes,
         )
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -178,7 +184,9 @@ def cmd_export(args: argparse.Namespace) -> int:
             status = 1
             continue
         notes = sum(len(p.events) for p in parts)
-        print(f"{path.name} -> {target}  ({', '.join(t.name for t in tracks)}; {len(bars)} bars, {notes} notes)")
+        chokes = sum(1 for p in parts for e in p.events if e.choke is not None)
+        counts = f"{len(bars)} bars, {notes} notes" + (f", {chokes} chokes" if chokes else "")
+        print(f"{path.name} -> {target}  ({', '.join(t.name for t in tracks)}; {counts})")
     return status
 
 
@@ -205,6 +213,9 @@ def _inspect_track(track: Track, bars: list[playback.PlayedBar], config: Config)
         art = track.articulations[index]
         note = config.notes.note(art)
         shown = "left out" if note is None else str(note)
+        choke = config.chokes.key(art)
+        if choke is not None and note is not None:
+            shown += f" + {choke}" if config.chokes.mode == "note" else " + aftertouch"
         if note != art.output_midi:
             shown += f"  (Guitar Pro: {art.output_midi})"
         print(f"     {count:6}  {art.name:28}  {shown}")

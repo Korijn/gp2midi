@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from .gpif import Beat, GPFormatError, Grace, MasterBar, Score, Track
-from .notemap import NoteMap
+from .notemap import ChokeMap, NoteMap
 from .velocity import VelocityMap
 
 DEFAULT_BPM = 120.0
@@ -27,6 +27,7 @@ class NoteEvent:
     end: Fraction
     key: int
     velocity: int
+    choke: int | None = None  # a choked cymbal: the note that chokes it (see ChokeMap)
 
 
 def playback_order(master_bars: list[MasterBar], expand_repeats: bool = True) -> list[int]:
@@ -117,9 +118,11 @@ def drum_events(
     velocities: VelocityMap,
     notes: NoteMap | None = None,
     note_length: Fraction | None = None,
+    chokes: ChokeMap | None = None,
 ) -> list[NoteEvent]:
     """``note_length`` (in quarter notes) replaces the written note lengths when given."""
     notes = notes or NoteMap()
+    chokes = chokes or ChokeMap(mode="off")
     events: list[NoteEvent] = []
     last_by_voice_key: dict[tuple[int, int], NoteEvent] = {}
     previous_beat: dict[int, list[NoteEvent]] = {}  # per voice, what grace notes steal from
@@ -129,7 +132,8 @@ def drum_events(
         for note in beat.notes:
             if not 0 <= note.articulation < len(track.articulations):
                 continue
-            key = notes.note(track.articulations[note.articulation])
+            articulation = track.articulations[note.articulation]
+            key = notes.note(articulation)
             if key is None:
                 continue
             previous = last_by_voice_key.get((voice, key))
@@ -138,7 +142,8 @@ def drum_events(
                     previous.end = max(previous.end, start + duration)
                 continue
             length = note_length if note_length is not None else duration / 2 if note.staccato else duration
-            event = NoteEvent(start, start + length, key, velocities.velocity(beat.dynamic, note, is_grace))
+            velocity = velocities.velocity(beat.dynamic, note, is_grace)
+            event = NoteEvent(start, start + length, key, velocity, chokes.key(articulation))
             events.append(event)
             created.append(event)
             last_by_voice_key[voice, key] = event

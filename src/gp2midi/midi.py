@@ -8,6 +8,7 @@ from pathlib import Path
 
 import mido
 
+from .notemap import ChokeMap
 from .playback import NoteEvent, PlayedBar
 
 Timed = tuple[int, int, mido.Message | mido.MetaMessage]
@@ -45,8 +46,10 @@ def build_midi(
     channel: int = 9,
     ticks_per_quarter: int = 960,
     markers: bool = True,
+    chokes: ChokeMap | None = None,
 ) -> mido.MidiFile:
     """``channel`` is 0-based: 9 is General MIDI's drum channel 10."""
+    chokes = chokes or ChokeMap(mode="off")
 
     def ticks(position: Fraction) -> int:
         return round(position * ticks_per_quarter)
@@ -79,6 +82,16 @@ def build_midi(
             end = max(ticks(e.end), start + 1)
             messages.append((start, 1, mido.Message("note_on", channel=channel, note=e.key, velocity=e.velocity)))
             messages.append((end, 0, mido.Message("note_off", channel=channel, note=e.key, velocity=0)))
+            if e.choke is not None:
+                # the cymbal is grabbed where it stops ringing, or a set time after the hit
+                at = e.end if chokes.at is None else min(e.start + chokes.at, e.end)
+                tick = max(ticks(at), start + 1)
+                if chokes.mode == "aftertouch":
+                    # while the cymbal still sounds, so before its note-off at the same tick
+                    messages.append((tick, -1, mido.Message("polytouch", channel=channel, note=e.key, value=chokes.pressure)))
+                else:
+                    messages.append((tick, 2, mido.Message("note_on", channel=channel, note=e.choke, velocity=chokes.velocity)))
+                    messages.append((tick + 1, 0, mido.Message("note_off", channel=channel, note=e.choke, velocity=0)))
         midi.tracks.append(_track(part.name, messages))
     return midi
 

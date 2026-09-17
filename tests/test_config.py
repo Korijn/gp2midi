@@ -34,6 +34,15 @@ normal = [40, 110]
 ghost = [10, 12, 14, 16, 18, 20, 22, 24]
 grace_offset = -5
 
+[chokes]
+mode = "aftertouch"
+at = "1/16"
+velocity = 90
+pressure = 64
+
+[chokes.notes]
+"Crash medium (choke)" = 119
+
 [notes]
 "Snare (rim shot)" = 40
 "kick   (HIT)" = false
@@ -58,6 +67,8 @@ def test_all_settings():
     assert c.velocity.table["accent"] == VelocityMap().table["accent"]  # not set: default
     assert c.velocity.table["ghost"] == (10, 12, 14, 16, 18, 20, 22, 24)
     assert c.velocity.grace_offset == -5
+    assert (c.chokes.mode, c.chokes.at, c.chokes.velocity, c.chokes.pressure) == ("aftertouch", Fraction(1, 4), 90, 64)
+    assert c.chokes.notes.entries == {"Crash medium (choke)": 119}
     assert c.notes.entries == {"Snare (rim shot)": 40, "kick   (HIT)": None}
 
 
@@ -77,6 +88,11 @@ def test_all_settings():
         ("[velocity]\nghost = [10]", "[velocity] ghost: expected [ppp, fff] or eight velocities"),
         ("[velocity]\nnormal = [0, 100]", "[velocity] normal: expected"),
         ("[velocity]\nmarkings = 1", "[velocity] markings: expected true or false"),
+        ("[chokes]\nmode = 'poly'", '[chokes] mode: expected "note", "aftertouch" or "off"'),
+        ("[chokes]\nat = 'later'", '[chokes] at: expected "end" or a note value'),
+        ("[chokes]\nvelocity = 0", "[chokes] velocity: expected a whole number from 1 to 127"),
+        ("[chokes]\nmoed = 'off'", "unknown setting in [chokes]: moed"),
+        ("[chokes.notes]\n'China (choke)' = 200", "expected a MIDI note number"),
         ("[notes]\n'Snare (hit)' = 128", 'expected a MIDI note number'),
         ("[notes]\n'Snare (hit)' = true", 'expected a MIDI note number'),
         ("[notes]\nSnare.hit = 38", "put articulation names in quotes"),
@@ -103,7 +119,15 @@ def test_settings_file_lists_used_articulations():
     assert '"Snare (hit)" = 38\n"Snare (rim shot)" = 40\n"kick   (HIT)" = false\n' in text
 
 
-@pytest.mark.parametrize("encoding, bom", [("utf-8", b""), ("utf-8", codecs.BOM_UTF8), ("utf-16-le", codecs.BOM_UTF16_LE)])
+def test_settings_file_lists_choke_notes():
+    crash = Articulation("Crash Medium", "Crash medium (choke)", 98, 57)
+    text = settings.to_toml(Config(), [crash])
+    chokes = text.split("[chokes.notes]")[1]
+    assert '"Crash medium (choke)" = 98' in chokes  # the note that chokes it
+    assert '"Crash medium (choke)" = 57' in text.split("[notes]")[-1]  # the cymbal itself
+
+
+@pytest.mark.parametrize("encoding, bom",[("utf-8", b""), ("utf-8", codecs.BOM_UTF8), ("utf-16-le", codecs.BOM_UTF16_LE)])
 def test_settings_file_encodings(tmp_path, encoding, bom):
     path = tmp_path / "gp2midi.toml"
     path.write_bytes(bom + '[notes]\n"Crash medium (choke)" = 57 # touché\n'.encode(encoding))

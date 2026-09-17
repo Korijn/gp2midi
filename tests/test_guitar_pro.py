@@ -6,7 +6,7 @@ are skipped. The songs themselves stay out of this repository.
 """
 
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import mido
@@ -14,6 +14,20 @@ import pytest
 
 from gp2midi import gpif
 from gp2midi.cli import main
+from gp2midi.notemap import ChokeMap
+
+# What it takes to get Guitar Pro's own export out of gp2midi.
+GUITAR_PRO_SETTINGS = """
+[midi]
+ticks_per_quarter = 480
+tempo_ramps = false
+[velocity]
+markings = false
+[chokes]
+mode = "off"
+"""
+
+CHOKES_OFF = '[chokes]\nmode = "off"\n'
 
 SONGS = Path(os.environ["GP2MIDI_TEST_SONGS"]) if os.environ.get("GP2MIDI_TEST_SONGS") else None
 EXPORTS = SONGS / "GP Exports" if SONGS else None
@@ -25,6 +39,23 @@ def songs() -> list[Path]:
 
 def native_export(song: Path) -> Path:
     return EXPORTS / f"{song.stem}.mid"
+
+
+def choke_keys(song: Path) -> set[int]:
+    """The notes that choke a cymbal somewhere in this song, by default."""
+    chokes = ChokeMap()
+    score = gpif.load(song)
+    keys = set()
+    for track in score.drum_tracks:
+        for mb in score.master_bars:
+            for voice in track.bar(mb).voices:
+                for beat in voice:
+                    for note in beat.notes:
+                        if 0 <= note.articulation < len(track.articulations):
+                            key = chokes.key(track.articulations[note.articulation])
+                            if key is not None:
+                                keys.add(key)
+    return keys
 
 
 def has_tempo_ramp(song: Path) -> bool:
@@ -74,10 +105,9 @@ def test_real_files_export(isolated_folder, song):
 @pytest.mark.parametrize("song", cases([s for s in songs() if native_export(s).is_file()], "Guitar Pro exports"), ids=name)
 def test_identical_to_guitar_pro_export(isolated_folder, song):
     """Guitar Pro's own export is velocity per dynamic only, gradual tempo changes as one
-    jump, and 480 ticks per quarter. Told to do the same, gp2midi must match it exactly."""
-    (isolated_folder / "gp.toml").write_text(
-        "[midi]\nticks_per_quarter = 480\ntempo_ramps = false\n[velocity]\nmarkings = false\n"
-    )
+    jump, no sign of a cymbal choke, and 480 ticks per quarter. Told to do the same, gp2midi
+    must match it exactly."""
+    (isolated_folder / "gp.toml").write_text(GUITAR_PRO_SETTINGS)
     assert main([str(song), "-o", "ours.mid", "--config", "gp.toml"]) == 0
     tpq, notes, tempo, meter, length, _ = summary(isolated_folder / "ours.mid")
     native = summary(native_export(song))
@@ -92,8 +122,11 @@ def test_identical_to_guitar_pro_export(isolated_folder, song):
     cases([s for s in songs() if native_export(s).is_file() and not has_tempo_ramp(s)], "Guitar Pro exports"),
     ids=name,
 )
-def test_only_velocities_differ_from_guitar_pro_export_by_default(isolated_folder, song):
-    assert main(["export", str(song), "-o", "ours.mid"]) == 0
+def test_only_velocities_differ_from_guitar_pro_export(isolated_folder, song):
+    """Everything gp2midi adds by default is a setting away; with the markings left on, only
+    the velocities may differ from Guitar Pro's own export."""
+    (isolated_folder / "plain.toml").write_text(CHOKES_OFF)
+    assert main(["export", str(song), "-o", "ours.mid", "--config", "plain.toml"]) == 0
     tpq, notes, tempo, meter, length, _ = summary(isolated_folder / "ours.mid")
     native_tpq, native_notes, native_tempo, native_meter, native_length, drums_last = summary(native_export(song))
     scale = tpq // native_tpq
@@ -101,6 +134,22 @@ def test_only_velocities_differ_from_guitar_pro_export_by_default(isolated_folde
     assert [(t // scale, v) for t, v in tempo] == native_tempo
     assert [(t // scale, n, d) for t, n, d in meter] == native_meter
     assert len({v for *_, v in notes}) > len({v for *_, v in native_notes})
+
+
+@pytest.mark.parametrize("song", cases([s for s in songs() if choke_keys(s)], "songs with a choked cymbal"), ids=name)
+def test_choked_cymbals_get_a_choking_note(isolated_folder, song):
+    """A choked cymbal is exported as the cymbal plus a note that chokes it where the cymbal
+    stops ringing; nothing else about the export changes."""
+    assert main([str(song), "-o", "choked.mid"]) == 0
+    (isolated_folder / "off.toml").write_text(CHOKES_OFF)
+    assert main([str(song), "-o", "plain.mid", "--config", "off.toml"]) == 0
+    choked = Counter(summary(isolated_folder / "choked.mid")[1])
+    plain = Counter(summary(isolated_folder / "plain.mid")[1])
+    assert not plain - choked  # every note of the plain export is still there, unchanged
+    extra = choked - plain
+    assert extra and {key for _, _, key, _ in extra} <= choke_keys(song)
+    ends = {end for _, end, _, _ in plain}
+    assert all(start in ends for start, *_ in extra)  # where the cymbal stops ringing
 
 
 @pytest.mark.parametrize("song", cases([s for s in songs() if has_tempo_ramp(s)], "songs with a gradual tempo change"), ids=name)

@@ -2,7 +2,8 @@
 
 Exports drum tracks from Guitar Pro 8 files (`.gp`) to General MIDI, keeping the dynamics you
 notated. Guitar Pro's own MIDI export follows the dynamic marking but throws away accents and
-ghost notes, so a part written with ghost notes and accents comes out flat.
+ghost notes, so a part written with ghost notes and accents comes out flat. It also chokes the
+cymbals you marked as choked, which Guitar Pro exports as ordinary hits.
 
 Only Guitar Pro 7/8 files (`.gp`) are read; `.gp3`, `.gp4` and `.gp5` are a different format
 and not supported.
@@ -49,6 +50,15 @@ heavy_accent = [57, 127]
 ghost = [20, 55]
 grace_offset = -20       # flams and drags, relative to their own marking
 
+[chokes]
+mode = "note"            # "aftertouch", or "off" to export a choke as a plain hit
+at = "end"               # or a note value after the hit, e.g. "1/32"
+velocity = 100           # of the choking note
+pressure = 127           # aftertouch value, for mode = "aftertouch"
+
+[chokes.notes]
+"China (choke)" = 96     # the note that chokes each cymbal; false leaves one unchoked
+
 [notes]
 "Snare (rim shot)" = 40  # unlisted articulations keep Guitar Pro's General MIDI note
 "Hi-Hat (half)" = 23     # false leaves an articulation out
@@ -60,16 +70,35 @@ collapse onto the ceiling. Ghost notes have a narrow range on purpose — a ghos
 stay a ghost note in a loud passage. A note that is both ghosted and accented counts as a
 ghost note.
 
+## Cymbal chokes
+
+Guitar Pro gives a choked cymbal the same MIDI note as an ordinary hit, so its export cannot
+tell the two apart. Drum instruments do it in one of two ways, and gp2midi writes either:
+
+- `mode = "note"` (the default): the cymbal, and then a second note that chokes it.
+- `mode = "aftertouch"`: polyphonic aftertouch on the cymbal's own note.
+
+The choke lands where the cymbal stops ringing — the end of the written note, so how long a
+choked cymbal rings is what you notated — or a set time after the hit with `at = "1/32"`.
+
+Each cymbal is choked by the note Guitar Pro itself gives its choke articulation: 94 ride, 95
+splash, 96 china, 97 crash high, 98 crash medium. Those are free in a General MIDI drum map,
+but your instrument probably wants its own; `gp2midi config tabs/` writes a `[chokes.notes]`
+line for every choked cymbal in your songs, ready to change. Instruments that choke on note-off
+instead need nothing: with `note_length = "written"` the cymbal's note ends where the choke is.
+
 ## Matching Guitar Pro's own export
 
-With `markings = false`, `tempo_ramps = false` and `ticks_per_quarter = 480`, gp2midi produces
+With `markings = false`, `tempo_ramps = false`, `[chokes] mode = "off"` and
+`ticks_per_quarter = 480`, gp2midi produces
 exactly what Guitar Pro exports: same note positions, lengths, note numbers and velocities.
 `tests/test_guitar_pro.py` checks that against Guitar Pro's own exports, and it is how the
 details below were established (from three songs using every dynamic but ppp).
 
 - Guitar Pro's velocities are tenths of 127 per dynamic: ppp 25, pp 38, p 51, mp 64, mf 76,
   f 89, ff 102, fff 114 (every value but ppp measured).
-- Accents, heavy accents and ghost notes do not change velocity in its export.
+- Accents, heavy accents and ghost notes do not change velocity in its export, and a choked
+  cymbal is written as a plain hit.
 - A grace note (flam) is played before the beat for the length it is written as, and the note
   before it is shortened to make room. A staccato note is half as long.
 - Gradual (linear) tempo changes are exported as one jump. gp2midi plays them out gradually by
@@ -81,6 +110,7 @@ details below were established (from three songs using every dynamic but ppp).
   38, crash choke → 57) unless `[notes]` says otherwise.
 - Repeats and alternate endings played out, tempo and time signature changes, section names as
   markers. Tied notes are not struck again.
+- Choked cymbals choked, as a second note or as aftertouch (see below).
 - Text is written as UTF-8, like Guitar Pro does.
 
 Not handled yet, with a warning when a file uses them: D.S./D.C./coda directions and simile

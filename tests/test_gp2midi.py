@@ -7,7 +7,7 @@ from gp2midi import gpif, playback
 from gp2midi.cli import main
 from gp2midi.gpif import Accent
 from gp2midi.midi import DrumPart, build_midi, microseconds_per_quarter
-from gp2midi.notemap import NoteMap
+from gp2midi.notemap import ChokeMap, NoteMap
 from gp2midi.velocity import DYNAMICS, GUITAR_PRO, VelocityMap, spread
 
 from gpif_builder import CRASH_CHOKE, KICK, MB, RIMSHOT, SNARE, B, N, build, write_gp
@@ -245,3 +245,81 @@ def test_export_cli_writes_midi(tmp_path, capsys):
         if m.type == "note_on":
             notes.append((now, m.channel, m.note, m.velocity))
     assert notes == [(0, 9, 36, 93), (960, 9, 38, 117), (1920, 9, 38, 50)]
+
+
+def choke_timeline(master_bars, chokes, ticks_per_quarter=4, **kwargs):
+    """Notes and aftertouch of the drum track, as (tick, type, note, value)."""
+    score = gpif.parse_gpif(build(master_bars))
+    bars = playback.played_bars(score)
+    ev = playback.drum_events(score.drum_tracks[0], bars, VelocityMap(), chokes=chokes, **kwargs)
+    midi = build_midi("t", bars, [], [DrumPart("d", ev)], chokes=chokes, ticks_per_quarter=ticks_per_quarter)
+    now, timeline = 0, []
+    for m in midi.tracks[1]:
+        now += m.time
+        if m.type in ("note_on", "note_off"):
+            timeline.append((now, m.type, m.note, m.velocity))
+        elif m.type == "polytouch":
+            timeline.append((now, m.type, m.note, m.value))
+    return timeline
+
+
+CHOKED = MB([[B(notes=[N(CRASH_CHOKE)]), B(notes=[N(KICK)])]])
+
+
+def test_choked_cymbal_is_choked_where_it_stops_ringing():
+    # the cymbal keeps Guitar Pro's note, and the number Guitar Pro gives the choke chokes it
+    assert choke_timeline([CHOKED], ChokeMap()) == [
+        (0, "note_on", 57, 73),
+        (4, "note_off", 57, 0),
+        (4, "note_on", 36, 73),
+        (4, "note_on", 98, 100),
+        (5, "note_off", 98, 0),
+        (8, "note_off", 36, 0),
+    ]
+
+
+def test_choke_is_off_by_setting():
+    assert [m for m in choke_timeline([CHOKED], ChokeMap(mode="off")) if m[2] == 98] == []
+    assert [m for m in choke_timeline([CHOKED], None) if m[2] == 98] == []
+
+
+def test_choke_by_aftertouch_arrives_while_the_cymbal_still_sounds():
+    assert choke_timeline([CHOKED], ChokeMap(mode="aftertouch", pressure=100))[:3] == [
+        (0, "note_on", 57, 73),
+        (4, "polytouch", 57, 100),
+        (4, "note_off", 57, 0),
+    ]
+
+
+def test_choke_at_a_set_time_after_the_hit():
+    chokes = ChokeMap(at=Fraction(1, 2))  # an eighth note after the cymbal
+    assert (2, "note_on", 98, 100) in choke_timeline([CHOKED], chokes)
+    # never beyond the end of the ring: this cymbal is a 32nd long
+    short = MB([[B("32nd", notes=[N(CRASH_CHOKE)])]])
+    assert (1, "note_on", 98, 100) in choke_timeline([short], chokes)
+
+
+def test_choke_follows_a_cymbal_cut_short_by_the_next_hit():
+    bar = MB([[B("Half", notes=[N(CRASH_CHOKE)]), B("Half", notes=[N(CRASH_CHOKE)])]])
+    assert [m for m in choke_timeline([bar], ChokeMap()) if m[2] == 98 and m[1] == "note_on"] == [
+        (8, "note_on", 98, 100),
+        (16, "note_on", 98, 100),
+    ]
+
+
+def test_choking_note_per_articulation():
+    chokes = ChokeMap(notes=NoteMap({"Crash medium (choke)": 119}))
+    assert (4, "note_on", 119, 100) in choke_timeline([CHOKED], chokes)
+
+
+def test_a_cymbal_can_be_left_unchoked():
+    chokes = ChokeMap(notes=NoteMap({"Crash medium (choke)": None}))
+    assert [m for m in choke_timeline([CHOKED], chokes) if m[1] == "note_on"] == [
+        (0, "note_on", 57, 73),
+        (4, "note_on", 36, 73),
+    ]
+
+
+def test_naming_an_articulation_makes_it_a_choke():
+    chokes = ChokeMap(notes=NoteMap({"Kick (hit)": 119}))
+    assert (8, "note_on", 119, 100) in choke_timeline([CHOKED], chokes)
