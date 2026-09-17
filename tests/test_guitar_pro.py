@@ -67,6 +67,24 @@ def test_identical_to_guitar_pro_export(isolated_folder, song):
         assert length == native_length
 
 
+@pytest.mark.skipif(not (TABS / "01 Lethe.gp").is_file(), reason="real Guitar Pro files not available")
+def test_gradual_tempo_change_speeds_up_bit_by_bit(isolated_folder):
+    """Lethe's last section is marked to speed up from 62 to 85 bpm over sixteen bars, which
+    is how Guitar Pro plays it (its own MIDI export jumps instead)."""
+    assert main([str(TABS / "01 Lethe.gp"), "-o", "ramped.mid"]) == 0
+    (isolated_folder / "steps.toml").write_text("[midi]\ntempo_ramps = false\n")
+    assert main([str(TABS / "01 Lethe.gp"), "-o", "stepped.mid", "--config", "steps.toml"]) == 0
+    tempo = [round(mido.tempo2bpm(t), 2) for _, t in summary(isolated_folder / "ramped.mid")[2]]
+    start = len(tempo) - 1  # the last tempo change ends the ramp; walk back while it rises
+    while start and tempo[start - 1] <= tempo[start]:
+        start -= 1
+    ramp = tempo[start:]
+    assert len(ramp) > 50 and ramp[0] < 63 and ramp[-1] == 85.0
+    # speeding up bit by bit makes the song shorter than holding 62 until the jump
+    assert summary(isolated_folder / "ramped.mid")[4] < summary(isolated_folder / "stepped.mid")[4] - 5
+    assert len(summary(isolated_folder / "stepped.mid")[2]) < 10
+
+
 @pytest.mark.skipif(not available("06 Silk and Gold"), reason="Guitar Pro's own export not available")
 def test_only_velocities_differ_from_guitar_pro_export_by_default(isolated_folder):
     ours = isolated_folder / "ours.mid"

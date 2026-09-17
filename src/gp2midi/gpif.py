@@ -95,7 +95,9 @@ class Bar:
 class TempoPoint:
     position: float  # fraction of the bar, 0..1
     bpm: float  # quarter notes per minute
-    linear: bool  # ramp linearly from this point to the next one
+    # Ramp linearly from this point to the next one, rather than changing at once. Guitar
+    # Pro's MIDI export drops the ramp, so this was checked against its playback by ear.
+    linear: bool
 
 
 @dataclass
