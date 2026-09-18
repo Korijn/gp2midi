@@ -10,7 +10,7 @@ from gp2midi.midi import DrumPart, build_midi, microseconds_per_quarter
 from gp2midi.notemap import ChokeMap, NoteMap
 from gp2midi.velocity import DYNAMICS, GUITAR_PRO, VelocityMap, spread
 
-from gpif_builder import CRASH_CHOKE, KICK, MB, RIMSHOT, SNARE, B, N, build, write_gp
+from gpif_builder import CRASH_CHOKE, KICK, LOW_TOM, MB, PEDAL_HIHAT, RIMSHOT, SNARE, VERY_LOW_TOM, B, N, build, write_gp
 
 HEAVY, ACCENT, STACCATO = 0x04, 0x08, 0x01
 
@@ -161,21 +161,21 @@ def test_tempo_is_truncated_like_guitar_pro():
     assert microseconds_per_quarter(106) == 566037  # 566037.7...
 
 
-def test_grace_before_beat_steals_from_previous_beat():
+def test_grace_before_beat_steals_from_previous_beat_like_guitar_pro():
     bar = MB([[
         B(notes=[N(KICK)]),
         B("64th", notes=[N(SNARE)], grace="BeforeBeat", dynamic="F"),
         B(notes=[N(SNARE)], dynamic="F"),
     ]])
-    e = events([bar])
+    e = events([bar], flams_per_drum=False)
     assert [(x.start, x.key, x.velocity) for x in e] == [(0, 36, 73), (Fraction(15, 16), 38, 63), (1, 38, 83)]
     assert e[0].end == Fraction(15, 16)  # the beat before ends where the grace note starts
     assert e[1].end == 1  # the grace note ends at the main stroke
 
 
-def test_grace_before_beat_steals_across_a_bar_line():
+def test_grace_before_beat_steals_across_a_bar_line_like_guitar_pro():
     bars = [MB([[B("Whole", notes=[N(KICK)])]]), MB([[B("64th", notes=[N(SNARE)], grace="BeforeBeat"), B(notes=[N(SNARE)])]])]
-    e = events(bars)
+    e = events(bars, flams_per_drum=False)
     assert [(x.start, x.end, x.key) for x in e] == [
         (0, Fraction(63, 16), 36), (Fraction(63, 16), 4, 38), (4, 5, 38),
     ]
@@ -185,6 +185,45 @@ def test_grace_on_beat_delays_and_shortens_the_main_note():
     bar = MB([[B("32nd", notes=[N(SNARE)], grace="OnBeat"), B(notes=[N(SNARE)]), B(notes=[N(KICK)])]])
     e = events([bar])
     assert [(x.start, x.end, x.key) for x in e] == [(0, Fraction(1, 8), 38), (Fraction(1, 8), 1, 38), (1, 2, 36)]
+
+
+def test_grace_on_beat_leaves_the_kick_on_the_beat():
+    bar = MB([[B("32nd", notes=[N(SNARE)], grace="OnBeat"), B(notes=[N(SNARE), N(KICK)])]])
+    e = events([bar])
+    assert [(x.start, x.end, x.key) for x in e] == [(0, 1, 36), (0, Fraction(1, 8), 38), (Fraction(1, 8), 1, 38)]
+
+
+def test_grace_on_beat_from_one_tom_to_another_moves_every_hand():
+    bar = MB([[
+        B("32nd", notes=[N(VERY_LOW_TOM)], grace="OnBeat"),
+        B(notes=[N(LOW_TOM), N(KICK), N(PEDAL_HIHAT)]),
+    ]])
+    e = events([bar])
+    assert [(x.start, x.key) for x in e] == [(0, 36), (0, 43), (0, 44), (Fraction(1, 8), 45)]
+
+
+def test_grace_on_beat_on_a_foot_moves_the_feet_only():
+    bar = MB([[B("32nd", notes=[N(KICK)], grace="OnBeat"), B(notes=[N(PEDAL_HIHAT), N(SNARE)])]])
+    e = events([bar])
+    assert [(x.start, x.key) for x in e] == [(0, 36), (0, 38), (Fraction(1, 8), 44)]
+
+
+def test_grace_on_beat_moves_the_whole_beat_like_guitar_pro():
+    bar = MB([[B("32nd", notes=[N(SNARE)], grace="OnBeat"), B(notes=[N(SNARE), N(KICK)])]])
+    e = events([bar], flams_per_drum=False)
+    assert [(x.start, x.key) for x in e] == [(0, 38), (Fraction(1, 8), 36), (Fraction(1, 8), 38)]
+
+
+def test_grace_before_beat_leaves_the_other_drums_of_the_beat_before_alone():
+    bar = MB([[
+        B(notes=[N(KICK), N(SNARE)]),
+        B("64th", notes=[N(SNARE)], grace="BeforeBeat"),
+        B(notes=[N(SNARE)]),
+    ]])
+    e = events([bar])
+    assert [(x.start, x.end, x.key) for x in e] == [
+        (0, 1, 36), (0, Fraction(15, 16), 38), (Fraction(15, 16), 1, 38), (1, 2, 38),
+    ]
 
 
 def test_staccato_note_is_half_as_long():

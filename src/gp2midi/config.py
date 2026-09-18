@@ -37,6 +37,7 @@ class Config:
     note_length: Fraction | None = None  # in quarter notes; None keeps the written lengths
     markers: bool = True
     tempo_ramps: bool = True
+    flams_per_drum: bool = True
     velocity: VelocityMap = field(default_factory=VelocityMap)
     notes: NoteMap = field(default_factory=NoteMap)
     chokes: ChokeMap = field(default_factory=ChokeMap)
@@ -93,6 +94,7 @@ def parse(data: dict[str, Any], label: str = FILENAME, source: Path | None = Non
     config.note_length = _note_length(midi)
     config.markers = midi.get_bool("markers", config.markers)
     config.tempo_ramps = midi.get_bool("tempo_ramps", config.tempo_ramps)
+    config.flams_per_drum = midi.get_bool("flams_per_drum", config.flams_per_drum)
     midi.finish()
 
     velocity = top.table("velocity")
@@ -301,6 +303,10 @@ def to_toml(config: Config, articulations: Iterable[Articulation] = ()) -> str:
         "# true: gradual tempo changes speed up or slow down bit by bit, as written.",
         "# false: they jump in one step, the way Guitar Pro's own MIDI export writes them.",
         f"tempo_ramps = {_show(config.tempo_ramps)}",
+        "# true: a flam moves only the drum it leads into; the kick and other notes on the",
+        "# same beat stay on the beat. false: the whole beat moves with it, feet included,",
+        "# the way Guitar Pro's own MIDI export plays flams.",
+        f"flams_per_drum = {_show(config.flams_per_drum)}",
         "",
         "[velocity]",
         "# true: dynamics, accents, ghost notes and grace notes set the velocity, as below.",

@@ -41,6 +41,7 @@ ticks_per_quarter = 960
 note_length = "written"  # or one length for every note, e.g. "1/32"
 markers = true           # section names (Intro, Verse, ...) as MIDI markers
 tempo_ramps = true       # false: gradual tempo changes jump, as Guitar Pro exports them
+flams_per_drum = true    # false: a flam moves the whole beat, kick included, as Guitar Pro does
 
 [velocity]
 markings = true          # false: dynamics only, with Guitar Pro's velocities (see below)
@@ -89,8 +90,8 @@ instead need nothing: with `note_length = "written"` the cymbal's note ends wher
 
 ## Matching Guitar Pro's own export
 
-With `markings = false`, `tempo_ramps = false`, `[chokes] mode = "off"` and
-`ticks_per_quarter = 480`, gp2midi produces
+With `markings = false`, `tempo_ramps = false`, `flams_per_drum = false`,
+`[chokes] mode = "off"` and `ticks_per_quarter = 480`, gp2midi produces
 exactly what Guitar Pro exports: same note positions, lengths, note numbers and velocities.
 `tests/test_guitar_pro.py` checks that against Guitar Pro's own exports, and it is how the
 details below were established (from three songs using every dynamic but ppp).
@@ -101,6 +102,12 @@ details below were established (from three songs using every dynamic but ppp).
   cymbal is written as a plain hit.
 - A grace note (flam) is played before the beat for the length it is written as, and the note
   before it is shortened to make room. A staccato note is half as long.
+- A grace note written on the beat delays the whole beat it leads into, so a kick under a
+  flam comes late. gp2midi moves only the drum the flam leads into by default, or when the
+  flam goes from one drum to another (tom to tom) the notes played by the same limbs: a flam
+  on a hand drum moves the hands, one on the kick or hi-hat pedal the feet. The rest of the
+  beat stays on the beat. Before-beat flams no longer shorten the other
+  drums of the beat before them either.
 - Gradual (linear) tempo changes are exported as one jump. gp2midi plays them out gradually by
   default, with a tempo change every 32nd note.
 

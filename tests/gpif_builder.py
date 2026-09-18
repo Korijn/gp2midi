@@ -14,8 +14,11 @@ KIT = [
     ("Kick Drum", "Kick (hit)", 36, 36),
     ("Crash Medium", "Crash medium (choke)", 98, 57),
     ("Acoustic Kick Drum", "Kick (hit)", 35, 35),
+    ("Tom Low", "Low Tom (hit)", 45, 45),
+    ("Tom Very Low", "Very Low Tom (hit)", 43, 43),
+    ("Charley", "Pedal Hi-Hat (hit)", 44, 44),
 ]
-SNARE, RIMSHOT, KICK, CRASH_CHOKE, ACOUSTIC_KICK = range(len(KIT))
+SNARE, RIMSHOT, KICK, CRASH_CHOKE, ACOUSTIC_KICK, LOW_TOM, VERY_LOW_TOM, PEDAL_HIHAT = range(len(KIT))
 
 
 @dataclass

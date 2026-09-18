@@ -5,10 +5,10 @@ All positions are in quarter notes from the start of the song, as exact fraction
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 
-from .gpif import Beat, GPFormatError, Grace, MasterBar, Score, Track
+from .gpif import Articulation, Beat, GPFormatError, Grace, MasterBar, Score, Track
 from .notemap import ChokeMap, NoteMap
 from .velocity import VelocityMap
 
@@ -112,6 +112,10 @@ def tempo_map(
     return changes
 
 
+def _is_foot(articulation: Articulation) -> bool:
+    return "kick" in articulation.element.casefold() or articulation.name.casefold().startswith("pedal hi-hat")
+
+
 def drum_events(
     track: Track,
     bars: list[PlayedBar],
@@ -119,8 +123,15 @@ def drum_events(
     notes: NoteMap | None = None,
     note_length: Fraction | None = None,
     chokes: ChokeMap | None = None,
+    flams_per_drum: bool = True,
 ) -> list[NoteEvent]:
-    """``note_length`` (in quarter notes) replaces the written note lengths when given."""
+    """``note_length`` (in quarter notes) replaces the written note lengths when given.
+
+    A grace note moves the note it leads into: with ``flams_per_drum``, the notes of the
+    beat on a drum a grace note is on, or when there are none (a flam from one tom to
+    another) the notes played by the same limbs: a grace note on a hand drum moves the
+    hands, one on the kick or hi-hat pedal moves the feet. Without it the whole beat moves, feet included, the
+    way Guitar Pro's own export does it."""
     notes = notes or NoteMap()
     chokes = chokes or ChokeMap(mode="off")
     events: list[NoteEvent] = []
@@ -149,6 +160,24 @@ def drum_events(
             last_by_voice_key[voice, key] = event
         return created
 
+    def flammed(beat: Beat, graces: list[Beat]) -> tuple[Beat, Beat]:
+        """The beat split into the notes the grace notes move and the notes they leave."""
+        if not flams_per_drum:
+            return beat, replace(beat, notes=())
+
+        def articulation(note):
+            return track.articulations[note.articulation] if 0 <= note.articulation < len(track.articulations) else None
+
+        def foot(note):
+            return bool((a := articulation(note)) and _is_foot(a))
+
+        drums = {a.element for g in graces for n in g.notes if (a := articulation(n))}
+        limbs = {foot(n) for g in graces for n in g.notes}
+        same_drum = [n for n in beat.notes if (a := articulation(n)) and a.element in drums]
+        moved = same_drum or [n for n in beat.notes if foot(n) in limbs]
+        left = tuple(n for n in beat.notes if not any(n is m for m in moved))
+        return replace(beat, notes=tuple(moved)), replace(beat, notes=left)
+
     for pb in bars:
         for v, voice in enumerate(track.bar(pb.master_bar).voices):
             position = pb.start
@@ -158,23 +187,29 @@ def drum_events(
                     graces.append(beat)  # grace beats take no time in the bar
                     continue
                 start, duration = position, beat.duration
+                created = []
                 if graces:
                     stolen = sum((g.duration for g in graces), Fraction(0))
+                    moved, kept = flammed(beat, graces)
                     if graces[0].grace is Grace.BEFORE_BEAT:
                         # played before the beat, taking their time from the beat before it
+                        # (per drum, a note is only cut short by the next hit on its own key)
                         grace_start = max(start - stolen, Fraction(0))
-                        for event in previous_beat.get(v, ()):
-                            event.end = min(event.end, grace_start)
+                        if not flams_per_drum:
+                            for event in previous_beat.get(v, ()):
+                                event.end = min(event.end, grace_start)
                     else:
-                        # played on the beat, taking their time from the beat itself
+                        # played on the beat, taking their time from the notes they lead into
                         grace_start = start
+                        created += emit(v, kept, start, duration, is_grace=False)
+                        beat = moved
                         start += stolen
                         duration = duration - stolen if stolen < duration else duration / 2
                     for g in graces:
                         emit(v, g, grace_start, g.duration, is_grace=True)
                         grace_start += g.duration
                     graces = []
-                previous_beat[v] = emit(v, beat, start, duration, is_grace=False)
+                previous_beat[v] = created + emit(v, beat, start, duration, is_grace=False)
                 position += beat.duration
             for g in graces:  # dangling grace notes at the end of a voice
                 emit(v, g, position, g.duration, is_grace=True)

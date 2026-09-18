@@ -21,6 +21,7 @@ GUITAR_PRO_SETTINGS = """
 [midi]
 ticks_per_quarter = 480
 tempo_ramps = false
+flams_per_drum = false
 [velocity]
 markings = false
 [chokes]
@@ -28,6 +29,8 @@ mode = "off"
 """
 
 CHOKES_OFF = '[chokes]\nmode = "off"\n'
+# The default velocities, with everything else played the way Guitar Pro plays it.
+GUITAR_PRO_TIMING = '[midi]\nflams_per_drum = false\n' + CHOKES_OFF
 
 SONGS = Path(os.environ["GP2MIDI_TEST_SONGS"]) if os.environ.get("GP2MIDI_TEST_SONGS") else None
 EXPORTS = SONGS / "GP Exports" if SONGS else None
@@ -125,7 +128,7 @@ def test_identical_to_guitar_pro_export(isolated_folder, song):
 def test_only_velocities_differ_from_guitar_pro_export(isolated_folder, song):
     """Everything gp2midi adds by default is a setting away; with the markings left on, only
     the velocities may differ from Guitar Pro's own export."""
-    (isolated_folder / "plain.toml").write_text(CHOKES_OFF)
+    (isolated_folder / "plain.toml").write_text(GUITAR_PRO_TIMING)
     assert main(["export", str(song), "-o", "ours.mid", "--config", "plain.toml"]) == 0
     tpq, notes, tempo, meter, length, _ = summary(isolated_folder / "ours.mid")
     native_tpq, native_notes, native_tempo, native_meter, native_length, drums_last = summary(native_export(song))

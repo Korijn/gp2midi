@@ -162,7 +162,9 @@ def cmd_export(args: argparse.Namespace) -> int:
         parts = [
             midi.DrumPart(
                 t.name,
-                playback.drum_events(t, bars, config.velocity, config.notes, config.note_length, config.chokes),
+                playback.drum_events(
+                    t, bars, config.velocity, config.notes, config.note_length, config.chokes, config.flams_per_drum
+                ),
             )
             for t in tracks
         ]
